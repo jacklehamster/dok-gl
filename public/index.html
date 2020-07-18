@@ -1,0 +1,230 @@
+
+<script src="gl-matrix.js"></script>
+<script>
+	function initShader(gl, type, source) {
+		if (type !== gl.VERTEX_SHADER && type !== gl.FRAGMENT_SHADER) {
+			throw new Error(`Shader error: ${type}`);
+		}
+		const shader = gl.createShader(type);
+		gl.shaderSource(shader, source);
+		gl.compileShader(shader);
+		return shader;
+	}
+
+	document.addEventListener("DOMContentLoaded", () => {
+		const gl = canvas.getContext('webgl');
+
+		const vertexShader = initShader(gl, gl.VERTEX_SHADER, document.getElementById("vertex-shader-3d").innerText);
+		const fragmentShader = initShader(gl, gl.FRAGMENT_SHADER, document.getElementById("fragment-shader-3d").innerText);
+
+
+		const ext = gl.getExtension('ANGLE_instanced_arrays');
+		if (!ext) {
+			throw new Error('need ANGLE_instanced_arrays');
+		}
+
+		const program = gl.createProgram();
+		gl.attachShader(program, vertexShader);
+		gl.attachShader(program, fragmentShader);
+
+		let count = 0;
+		gl.bindAttribLocation(program, count++, "aPosition");
+
+		gl.linkProgram(program);
+  
+		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+		  throw new Error('Unable to initialize the shader program:\n' + gl.getProgramInfoLog(program));
+		}
+  
+		gl.useProgram(program);
+
+
+		const aPositionLoc = gl.getAttribLocation(program, 'aPosition');
+		const colorLoc = gl.getAttribLocation(program, 'color');
+		const matrixLoc = gl.getAttribLocation(program, 'matrix');
+		const projectionLoc = gl.getUniformLocation(program, 'projection');
+		const viewLoc = gl.getUniformLocation(program, 'view');
+
+		const quadBuffer = new Float32Array([
+		    -0.5, -0.5, -5,
+		    -0.5,  0.5, -5,
+		     0.5, -0.5, -5,
+		     0.5, -0.5, -5,
+		    -0.5,  0.5, -5,
+		     0.5,  0.5, -5,
+		]);
+
+		const positionBuffer = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+		gl.bufferData(gl.ARRAY_BUFFER, quadBuffer, gl.STATIC_DRAW);
+		const numVertices = quadBuffer.length / 3;
+
+		const numInstances = 5;
+		const matrixData = new Float32Array(numInstances * 16);
+		const matrices = [];
+		for (let i = 0; i < numInstances; ++i) {
+		  const byteOffsetToMatrix = i * 16 * 4;
+		  const numFloatsForView = 16;
+		  matrices.push(new Float32Array(
+		      matrixData.buffer,
+		      byteOffsetToMatrix,
+		      numFloatsForView));
+		}
+		const matrixBuffer = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, matrixBuffer);
+		// just allocate the buffer
+		gl.bufferData(gl.ARRAY_BUFFER, matrixData.byteLength, gl.DYNAMIC_DRAW);
+
+		 
+		// const colors = [
+		//   [ 1, 0, 0, 1, ],  // red
+		//   [ 0, 1, 0, 1, ],  // green
+		//   [ 0, 0, 1, 1, ],  // blue
+		//   [ 1, 0, 1, 1, ],  // magenta
+		//   [ 0, 1, 1, 1, ],  // cyan
+		// ];
+		// setup colors, one per instance
+		const colorBuffer = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+		gl.bufferData(gl.ARRAY_BUFFER,
+	    new Float32Array([
+	        1, 0, 0, 1,  // red
+	        0, 1, 0, 1,  // green
+	        0, 0, 1, 1,  // blue
+	        1, 0, 1, 1,  // magenta
+	        0, 1, 1, 1,  // cyan
+	      ]),
+	    gl.DYNAMIC_DRAW);
+
+
+
+		let firstTime = true;
+
+		function render(time) {
+			time *= 0.001; // seconds
+
+			if (firstTime) {
+				gl.useProgram(program);
+			 
+				//	VIEW
+				const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+
+				const fieldOfViewRadians = Math.PI / 2;
+				const zNear = .1;
+				const zFar = 2000;
+				const matrix = mat4.perspective(mat4.create(), fieldOfViewRadians, aspect, zNear, zFar);
+
+				gl.uniformMatrix4fv(projectionLoc, false, matrix);
+			}
+
+			gl.uniformMatrix4fv(viewLoc, false, mat4.fromZRotation(mat4.create(), time * 5 * .1));
+
+
+			if (firstTime) {
+
+				// setup the position attribute
+				gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+				gl.enableVertexAttribArray(aPositionLoc);
+				gl.vertexAttribPointer(
+				  aPositionLoc,  // location
+				  3,            // size (num values to pull from buffer per iteration)
+				  gl.FLOAT,     // type of data in buffer
+				  false,        // normalize
+				  0,            // stride (0 = compute from size and type above)
+				  0,            // offset in buffer
+				);
+			}
+
+
+			matrices.forEach((mat, ndx) => {
+				mat4.fromTranslation(mat, vec3.fromValues(-.5 + ndx * 0.25, 0, ndx));
+				mat4.rotateZ(mat, mat, time * 5 * (0.1 + 0.1 * ndx));
+			});
+			gl.bindBuffer(gl.ARRAY_BUFFER, matrixBuffer);
+			gl.bufferSubData(gl.ARRAY_BUFFER, 0, matrixData);
+
+
+			if (firstTime) {
+				//	MATRIX ATTRIBUTE
+				const bytesPerMatrix = 4 * 16;
+				for (let i = 0; i < 4; ++i) {
+				  const loc = matrixLoc + i;
+				  gl.enableVertexAttribArray(loc);
+				  // note the stride and offset
+				  const offset = i * 16;  // 4 floats per row, 4 bytes per float
+				  gl.vertexAttribPointer(
+				      loc,              // location
+				      4,                // size (num values to pull from buffer per iteration)
+				      gl.FLOAT,         // type of data in buffer
+				      false,            // normalize
+				      bytesPerMatrix,   // stride, num bytes to advance to get to next set of values
+				      offset,           // offset in buffer
+				  );
+				  // this line says this attribute only changes for each 1 instance
+				  ext.vertexAttribDivisorANGLE(loc, 1);
+				}				 
+			  console.log(matrices);
+
+
+				//	COLOR ATTRIBUTE
+				// set attribute for color
+				gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+				gl.enableVertexAttribArray(colorLoc);
+				gl.vertexAttribPointer(colorLoc, 4, gl.FLOAT, false, 0, 0);
+				// this line says this attribute only changes for each 1 instance
+				ext.vertexAttribDivisorANGLE(colorLoc, 1);
+
+			}
+
+
+			//	DRAW CALL
+			ext.drawArraysInstancedANGLE(
+			  gl.TRIANGLES,
+			  0,             // offset
+			  numVertices,   // num vertices per instance
+			  numInstances,  // num instances
+			);
+			firstTime = false;
+		  	requestAnimationFrame(render);
+		}
+		requestAnimationFrame(render);
+		
+
+	});
+</script>
+
+
+<!-- vertex shader -->
+<script id="vertex-shader-3d" type="x-shader/x-vertex">
+attribute vec4 aPosition;
+attribute vec4 color;
+attribute mat4 matrix;
+uniform mat4 projection;
+uniform mat4 view;
+
+varying vec4 v_color;
+ 
+void main() {
+  // Multiply the position by the matrix.
+	gl_Position = projection * view * matrix * aPosition;
+	v_color = color;
+}
+</script>
+
+
+<!-- fragment shader -->
+<script id="fragment-shader-3d" type="x-shader/x-fragment">
+precision mediump float;
+ 
+varying vec4 v_color;
+ 
+void main() {
+  gl_FragColor = v_color;
+}
+</script>
+
+
+<body>
+	<canvas id="canvas" width=800 height=500 style="border: 1px solid silver">
+	</canvas>
+</body>
