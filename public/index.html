@@ -13,23 +13,18 @@
 
 	document.addEventListener("DOMContentLoaded", () => {
 		const gl = canvas.getContext('webgl');
-
-		const vertexShader = initShader(gl, gl.VERTEX_SHADER, document.getElementById("vertex-shader-3d").innerText);
-		const fragmentShader = initShader(gl, gl.FRAGMENT_SHADER, document.getElementById("fragment-shader-3d").innerText);
-
-
 		const ext = gl.getExtension('ANGLE_instanced_arrays');
 		if (!ext) {
 			throw new Error('need ANGLE_instanced_arrays');
 		}
 
+		const vertexShader = initShader(gl, gl.VERTEX_SHADER, document.getElementById("vertex-shader-3d").innerText);
+		const fragmentShader = initShader(gl, gl.FRAGMENT_SHADER, document.getElementById("fragment-shader-3d").innerText);
+
+
 		const program = gl.createProgram();
 		gl.attachShader(program, vertexShader);
 		gl.attachShader(program, fragmentShader);
-
-		let count = 0;
-		gl.bindAttribLocation(program, count++, "aPosition");
-
 		gl.linkProgram(program);
   
 		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
